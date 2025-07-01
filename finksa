@@ -1,0 +1,168 @@
+import random
+import string
+from datetime import datetime
+import hijri_converter
+import tkinter as tk
+from tkinter import messagebox, filedialog, ttk
+import json
+import csv
+
+# ==========================
+# Fake Arabic Names (عينة بسيطة)
+# ==========================
+arabic_first_names = ["أحمد", "محمد", "سارة", "فاطمة", "خالد", "نورة"]
+arabic_last_names = ["العتيبي", "الزهراني", "المالكي", "الشريف", "الغامدي", "السبيعي"]
+
+# ==========================
+# Data Generators
+# ==========================
+
+def generate_sa_iban():
+    bank_code = random.randint(10, 99)
+    account_number = ''.join([str(random.randint(0, 9)) for _ in range(18)])
+    return f"SA{bank_code}{account_number}"
+
+def generate_card_number(prefix="589004", length=16):
+    card = [int(x) for x in prefix]
+    while len(card) < (length - 1):
+        card.append(random.randint(0, 9))
+    checksum = luhn_checksum(card)
+    card.append(checksum)
+    return ''.join(map(str, card))
+
+def luhn_checksum(card):
+    digits = card[:]
+    digits.reverse()
+    checksum = 0
+    for i, d in enumerate(digits):
+        if i % 2 == 0:
+            d *= 2
+            if d > 9:
+                d -= 9
+        checksum += d
+    return (10 - (checksum % 10)) % 10
+
+def generate_national_id():
+    first_digit = random.choice(['1', '2'])
+    body = ''.join([str(random.randint(0, 9)) for _ in range(9)])
+    return first_digit + body
+
+def generate_stc_pay_account():
+    return "STC" + ''.join(random.choices(string.digits, k=10))
+
+def generate_mada_account():
+    return "MADA" + ''.join(random.choices(string.digits, k=12))
+
+def generate_urpay_account():
+    return "URP" + ''.join(random.choices(string.digits, k=8))
+
+def generate_hijri_date():
+    today = datetime.today()
+    hijri = hijri_converter.Gregorian(today.year, today.month, today.day).to_hijri()
+    return f"{hijri.day:02d}/{hijri.month:02d}/{hijri.year}"
+
+def generate_currency_amount(currency="SAR"):
+    amount = round(random.uniform(10, 50000), 2)
+    return f"{amount} {currency}"
+
+def generate_phone_number():
+    prefixes = ['050', '053', '054', '055', '056', '057', '058', '059']
+    return random.choice(prefixes) + ''.join(random.choices(string.digits, k=7))
+
+def generate_arabic_name():
+    return f"{random.choice(arabic_first_names)} {random.choice(arabic_last_names)}"
+
+# ==========================
+# GUI and Export
+# ==========================
+
+fields = {
+    "Name (Arabic)": generate_arabic_name,
+    "National ID": generate_national_id,
+    "IBAN": generate_sa_iban,
+    "Mada Card": generate_card_number,
+    "STC Pay": generate_stc_pay_account,
+    "Mada Account": generate_mada_account,
+    "URPay Account": generate_urpay_account,
+    "Hijri Date": generate_hijri_date,
+    "Currency SAR": lambda: generate_currency_amount("SAR"),
+    "Currency USD": lambda: generate_currency_amount("USD"),
+    "Phone Number": generate_phone_number
+}
+
+def on_generate():
+    try:
+        count = int(entry_count.get())
+        if count <= 0:
+            raise ValueError()
+    except:
+        messagebox.showerror("Error", "Please enter a valid positive number.")
+        return
+
+    selected = [field for field, var in check_vars.items() if var.get()]
+    if not selected:
+        messagebox.showwarning("No fields", "Please select at least one field.")
+        return
+
+    global results
+    results = []
+    results_text.delete('1.0', tk.END)
+
+    for _ in range(count):
+        entry = {field: fields[field]() for field in selected}
+        results.append(entry)
+        results_text.insert(tk.END, json.dumps(entry, ensure_ascii=False) + "\n")
+
+def export_data(format):
+    if not results:
+        messagebox.showwarning("No data", "Generate data first before exporting.")
+        return
+
+    filetypes = [('JSON file', '*.json')] if format == "json" else [('CSV file', '*.csv')]
+    ext = ".json" if format == "json" else ".csv"
+    file = filedialog.asksaveasfilename(defaultextension=ext, filetypes=filetypes)
+    if not file:
+        return
+
+    try:
+        if format == "json":
+            with open(file, 'w', encoding='utf-8') as f:
+                json.dump(results, f, ensure_ascii=False, indent=2)
+        else:
+            with open(file, 'w', encoding='utf-8', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=results[0].keys())
+                writer.writeheader()
+                writer.writerows(results)
+        messagebox.showinfo("Success", f"Exported to {file}")
+    except Exception as e:
+        messagebox.showerror("Error", f"Failed to export:\n{e}")
+
+# ==========================
+# Tkinter UI
+# ==========================
+
+app = tk.Tk()
+app.title("مولد بيانات الاختبار")
+
+tk.Label(app, text="عدد السجلات:").grid(row=0, column=0, padx=10, pady=10)
+entry_count = tk.Entry(app)
+entry_count.insert(0, "5")
+entry_count.grid(row=0, column=1, padx=10, pady=10)
+
+check_vars = {}
+for idx, field in enumerate(fields):
+    var = tk.BooleanVar(value=True)
+    cb = tk.Checkbutton(app, text=field, variable=var)
+    cb.grid(row=1 + idx // 3, column=idx % 3, sticky='w', padx=10)
+    check_vars[field] = var
+
+tk.Button(app, text="توليد البيانات", command=on_generate).grid(row=6, column=0, pady=10)
+tk.Button(app, text="تصدير JSON", command=lambda: export_data("json")).grid(row=6, column=1)
+tk.Button(app, text="تصدير CSV", command=lambda: export_data("csv")).grid(row=6, column=2)
+
+results_text = tk.Text(app, width=100, height=20)
+results_text.grid(row=7, column=0, columnspan=3, padx=10, pady=10)
+
+results = []  # لتخزين البيانات التي يتم توليدها
+
+app.mainloop()
